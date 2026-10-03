@@ -1,0 +1,5 @@
+node_modules
+build
+k8s
+npm-debug.log*
+.env*

@@ -1,0 +1,25 @@
+name: Setup backend
+description: >
+  Set up Python 3.10 (as required by starter/backend/Pipfile), restore the
+  pipenv virtualenv cache, and install dependencies including dev packages.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python with pipenv dependency caching
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+        cache: pipenv
+        cache-dependency-path: starter/backend/Pipfile.lock
+
+    - name: Install pipenv
+      shell: bash
+      run: pip install --quiet pipenv
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: starter/backend
+      # --dev is required because flake8 (used by `pipenv run lint`) is a dev package.
+      # --deploy fails the job if Pipfile.lock is out of date with Pipfile.
+      run: pipenv install --dev --deploy

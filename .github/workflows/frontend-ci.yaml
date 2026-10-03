@@ -1,0 +1,145 @@
+name: Frontend Continuous Integration
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - starter/frontend/**
+      - .github/workflows/frontend-ci.yaml
+      - .github/actions/setup-frontend/**
+  workflow_dispatch:
+
+# A new push to the same PR makes older CI runs obsolete, so cancel them.
+concurrency:
+  group: frontend-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Local default backend URL from the team's notes. CI only proves the image
+  # builds; the real backend URL is injected by the CD workflow.
+  REACT_APP_MOVIE_API_URL: http://localhost:5000
+
+defaults:
+  run:
+    working-directory: starter/frontend
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Run ESLint
+        run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Run tests
+        run: npm test
+        env:
+          # CI=true makes react-scripts run once and exit instead of entering watch mode.
+          CI: true
+
+  build:
+    name: Build Docker image
+    runs-on: ubuntu-24.04
+    # Gate: a lint or test failure skips the build, which fails the run.
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build image (with GitHub Actions layer cache)
+        uses: docker/build-push-action@v7
+        with:
+          context: starter/frontend
+          push: false
+          tags: mp-frontend:${{ github.sha }}
+          # Equivalent to `docker build --build-arg REACT_APP_MOVIE_API_URL=...`
+          build-args: |
+            REACT_APP_MOVIE_API_URL=${{ env.REACT_APP_MOVIE_API_URL }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+  report:
+    name: Report results
+    runs-on: ubuntu-24.04
+    # always() so the team hears about failures too. This job never changes the
+    # run's conclusion: the run still fails if lint, test or build failed.
+    if: always()
+    needs: [lint, test, build]
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Write job summary and PR comment
+        uses: actions/github-script@v9
+        env:
+          LINT_RESULT: ${{ needs.lint.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        with:
+          script: |
+            const icon = (result) => ({ success: '✅', failure: '❌', skipped: '⏭️', cancelled: '🚫' }[result] ?? '❔');
+            const rows = [
+              ['Lint (ESLint)', process.env.LINT_RESULT],
+              ['Test (Jest)', process.env.TEST_RESULT],
+              ['Build (Docker)', process.env.BUILD_RESULT],
+            ];
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const marker = '<!-- frontend-ci-report -->';
+            const body = [
+              marker,
+              '### Frontend CI results',
+              '',
+              '| Job | Result |',
+              '| --- | --- |',
+              ...rows.map(([job, result]) => `| ${job} | ${icon(result)} ${result} |`),
+              '',
+              `Commit \`${context.sha.slice(0, 7)}\` · [View run](${runUrl})`,
+            ].join('\n');
+
+            await core.summary.addRaw(body).write();
+
+            const pr = context.payload.pull_request;
+            // Fork PRs get a read-only token, so commenting would fail; the job summary still has the results.
+            if (!pr || pr.head.repo.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.info('[report] Not a same-repo pull request; skipping PR comment.');
+              return;
+            }
+
+            // Edit one sticky comment instead of adding a new comment on every push.
+            try {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...context.repo, issue_number: pr.number,
+              });
+              const existing = comments.find((c) => c.body?.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+              } else {
+                await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number, body });
+              }
+            } catch (error) {
+              core.warning(`[report] Could not post PR comment: ${error.message}`);
+            }

@@ -1,0 +1,20 @@
+name: Setup frontend
+description: >
+  Set up Node.js (version pinned by starter/frontend/.nvmrc), restore the npm
+  dependency cache, and install dependencies with npm ci.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node.js with npm dependency caching
+      uses: actions/setup-node@v4
+      with:
+        # .nvmrc is the team's source of truth, so CI can never drift from local dev.
+        node-version-file: starter/frontend/.nvmrc
+        cache: npm
+        cache-dependency-path: starter/frontend/package-lock.json
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: starter/frontend
+      run: npm ci --no-audit --no-fund

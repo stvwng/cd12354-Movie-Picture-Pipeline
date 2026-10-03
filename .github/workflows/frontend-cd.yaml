@@ -1,0 +1,254 @@
+name: Frontend Continuous Deployment
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - starter/frontend/**
+      - .github/workflows/frontend-cd.yaml
+      - .github/actions/setup-frontend/**
+      - .github/scripts/smoke-test.sh
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: Backend base URL to bake into the build (leave empty to discover it from the cluster)
+        required: false
+        default: ""
+
+# Queue deployments instead of cancelling them: killing a run halfway through
+# `kubectl apply` could leave the cluster half-updated.
+concurrency:
+  group: frontend-cd
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: cluster
+  ECR_REPOSITORY: frontend
+
+defaults:
+  run:
+    working-directory: starter/frontend
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Run ESLint
+        run: npm run lint
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Run tests
+        run: npm test
+        env:
+          CI: true
+
+  build:
+    name: Build and push image to ECR
+    runs-on: ubuntu-latest
+    # Gate: nothing reaches ECR unless lint and tests passed.
+    needs: [lint, test]
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      api_url: ${{ steps.backend.outputs.url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js, restore npm cache, install dependencies
+        uses: ./.github/actions/setup-frontend
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve backend URL
+        id: backend
+        env:
+          INPUT_URL: ${{ inputs.backend_url }}
+          REPO_VAR_URL: ${{ vars.REACT_APP_MOVIE_API_URL }}
+        # React reads REACT_APP_* at *build* time, so the backend URL must be known
+        # before `npm run build` runs inside the Dockerfile. Precedence:
+        # manual input > repository variable > the backend Service's live load balancer.
+        run: |
+          url="${INPUT_URL:-$REPO_VAR_URL}"
+          if [[ -z "$url" ]]; then
+            echo "[build] Discovering backend URL from the cluster"
+            aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+            # On a first-ever push both CD workflows start together, so give the
+            # backend's load balancer up to ~5 minutes to appear.
+            host=""
+            for attempt in $(seq 1 30); do
+              host=$(kubectl get service backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+              [[ -n "$host" ]] && break
+              echo "[build] Waiting for backend load balancer (attempt ${attempt}/30)"
+              sleep 10
+            done
+            if [[ -z "$host" ]]; then
+              echo "::error::[build] backend Service has no load balancer yet. Deploy the backend first or set the REACT_APP_MOVIE_API_URL repository variable."
+              exit 1
+            fi
+            url="http://${host}"
+          fi
+          url="${url%/}"
+          echo "[build] REACT_APP_MOVIE_API_URL=${url}"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Compute image name
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr.outputs.registry }}
+        # The git SHA tag ties every running pod back to the exact commit that built it.
+        run: echo "image=${ECR_REGISTRY}/${ECR_REPOSITORY}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image (with GitHub Actions layer cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: starter/frontend
+          push: true
+          tags: ${{ steps.image.outputs.image }}
+          # Equivalent to `docker build --build-arg REACT_APP_MOVIE_API_URL=...`
+          build-args: |
+            REACT_APP_MOVIE_API_URL=${{ steps.backend.outputs.url }}
+          # EKS nodes are x86_64 (t3.small); pin the platform so the image always matches.
+          platforms: linux/amd64
+          # Without this, Buildx adds a provenance attestation that ECR lists as an extra untagged "image".
+          provenance: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build
+    environment:
+      name: frontend-production
+      url: ${{ steps.smoke.outputs.url }}
+    outputs:
+      url: ${{ steps.smoke.outputs.url }}
+    defaults:
+      run:
+        working-directory: starter/frontend/k8s
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure kubectl for EKS
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --region "$AWS_REGION"
+
+      - name: Ensure kustomize is installed
+        run: |
+          if ! command -v kustomize >/dev/null; then
+            echo "[deploy] kustomize not found on runner; installing"
+            curl -sSfL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- 5.4.3 /usr/local/bin
+          fi
+          kustomize version
+
+      - name: Point manifests at the new image
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+        # This edits kustomization.yaml on the runner only; it is never committed.
+        run: kustomize edit set image "frontend=${IMAGE}"
+
+      - name: Apply manifests
+        id: apply
+        run: kustomize build | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: kubectl rollout status deployment/frontend --timeout=180s
+
+      - name: Smoke test the UI and its backend wiring
+        id: smoke
+        working-directory: .
+        env:
+          EXPECTED_API_URL: ${{ needs.build.outputs.api_url }}
+        run: bash .github/scripts/smoke-test.sh frontend
+
+      - name: Roll back on failure
+        # Only undo if this run actually changed the Deployment.
+        if: failure() && steps.apply.outcome == 'success'
+        run: |
+          echo "::warning::[deploy] Rollout or smoke test failed; rolling back to the previous ReplicaSet"
+          kubectl rollout undo deployment/frontend
+          kubectl rollout status deployment/frontend --timeout=180s
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [lint, test, build, deploy]
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+      RESULT: ${{ needs.deploy.result }}
+      IMAGE: ${{ needs.build.outputs.image }}
+      API_URL: ${{ needs.build.outputs.api_url }}
+      URL: ${{ needs.deploy.outputs.url }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Write job summary
+        run: |
+          {
+            echo "### Frontend deployment: ${RESULT}"
+            echo ""
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Lint | ${{ needs.lint.result }} |"
+            echo "| Test | ${{ needs.test.result }} |"
+            echo "| Build & push | ${{ needs.build.result }} |"
+            echo "| Deploy & smoke test | ${RESULT} |"
+            echo "| Image | \`${IMAGE:-n/a}\` |"
+            echo "| Backend API | ${API_URL:-n/a} |"
+            echo "| URL | ${URL:-n/a} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Send Slack notification
+        # Optional: only runs when the SLACK_WEBHOOK_URL secret is configured.
+        if: env.SLACK_WEBHOOK_URL != ''
+        run: |
+          if [[ "$RESULT" == "success" ]]; then emoji=":white_check_mark:"; else emoji=":x:"; fi
+          text="${emoji} Frontend deploy *${RESULT}* for \`${GITHUB_SHA::7}\` by ${GITHUB_ACTOR}. <${RUN_URL}|View run>"
+          [[ -n "$URL" ]] && text="${text} · <${URL}|Open app>"
+          payload=$(jq -n --arg text "$text" '{text: $text}')
+          curl --silent --show-error --fail -X POST -H 'Content-Type: application/json' -d "$payload" "$SLACK_WEBHOOK_URL" \
+            || echo "::warning::[notify] Slack notification failed"

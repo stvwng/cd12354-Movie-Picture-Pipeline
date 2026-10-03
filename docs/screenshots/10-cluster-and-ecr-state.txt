@@ -1,0 +1,18 @@
+# Captured 2026-10-03T19:54:27Z
+$ kubectl get deploy,svc -o wide
+NAME                       READY   UP-TO-DATE   AVAILABLE   AGE     CONTAINERS   IMAGES                                                                                           SELECTOR
+deployment.apps/backend    1/1     1            1           3m55s   backend      447766726540.dkr.ecr.us-east-1.amazonaws.com/backend:e3f334d4a10757f6fc5f8fe8926e920f4837d00b    app=backend
+deployment.apps/frontend   1/1     1            1           119s    frontend     447766726540.dkr.ecr.us-east-1.amazonaws.com/frontend:e3f334d4a10757f6fc5f8fe8926e920f4837d00b   app=frontend
+
+NAME                 TYPE           CLUSTER-IP     EXTERNAL-IP                                                               PORT(S)        AGE     SELECTOR
+service/backend      LoadBalancer   172.20.85.9    ad35f450b0539488ebb9fba1c46c9978-246382396.us-east-1.elb.amazonaws.com    80:32269/TCP   3m55s   app=backend
+service/frontend     LoadBalancer   172.20.59.44   ada34c1155f7e461b91fbd0d35ef8d8f-1904641597.us-east-1.elb.amazonaws.com   80:32301/TCP   119s    app=frontend
+service/kubernetes   ClusterIP      172.20.0.1     <none>                                                                    443/TCP        31m     <none>
+
+$ curl http://ad35f450b0539488ebb9fba1c46c9978-246382396.us-east-1.elb.amazonaws.com/movies
+{"movies":[{"id":"123","title":"Top Gun: Maverick"},{"id":"456","title":"Sonic the Hedgehog"},{"id":"789","title":"A Quiet Place"}]}
+
+
+$ aws ecr describe-images (frontend, backend)
+frontend	e3f334d4a10757f6fc5f8fe8926e920f4837d00b	2026-10-03T15:51:44.159000-04:00	178165423
+backend	e3f334d4a10757f6fc5f8fe8926e920f4837d00b	2026-10-03T15:50:03.896000-04:00	156845258

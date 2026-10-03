@@ -1,0 +1,182 @@
+<title>CI/CD Pipeline Primer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: sticky stage index on the left, one reading column on the right; a pipeline rail opens the page. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #16212b;
+  --muted: #5b6977;
+  --line: #d9e0e6;
+  --accent: #0b7480;
+  --accent-soft: #e2f1f2;
+  --warn: #9a5a06;
+  --pass: #2f7d43;
+  --code-bg: #eaeef2;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1317; --surface: #151c22; --ink: #e2e8ed; --muted: #95a3af; --line: #26313a;
+    --accent: #52c2cb; --accent-soft: #15302f; --warn: #e0a54a; --pass: #6cc488; --code-bg: #1b242b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1317; --surface: #151c22; --ink: #e2e8ed; --muted: #95a3af; --line: #26313a;
+  --accent: #52c2cb; --accent-soft: #15302f; --warn: #e0a54a; --pass: #6cc488; --code-bg: #1b242b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.65 var(--body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* ---------- header ---------- */
+.masthead { max-width: 1180px; margin: 0 auto; padding-block: 40px 28px; border-bottom: 1px solid var(--line); }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 {
+  font-family: var(--display); font-weight: 800; font-stretch: 85%;
+  font-size: clamp(2.2rem, 5vw, 3.6rem); line-height: 1.02; letter-spacing: -.01em;
+  margin: 12px 0 14px; text-wrap: balance;
+}
+.lede { max-width: 62ch; color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; }
+
+/* pipeline rail: the project's real stage sequence */
+.rail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; font: 600 13px/1 var(--mono); }
+.stage { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+.stage::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
+.stage.gate { border-color: var(--accent); }
+.stage.gate::before { background: var(--accent); }
+.arrow { color: var(--muted); padding: 0 6px; }
+.rail-note { margin-top: 12px; font: 12px/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- layout ---------- */
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 56px; padding-top: 32px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; max-height: calc(100vh - 40px); overflow-y: auto; }
+.toc-title { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: grid; grid-template-columns: 26px 1fr; gap: 4px; padding: 5px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 14px; line-height: 1.35; }
+nav.toc a:hover { background: var(--accent-soft); }
+nav.toc a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav.toc .n { font: 600 12px/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+nav.toc a.active .n { color: var(--accent); }
+
+main { min-width: 0; max-width: 78ch; }
+
+/* ---------- content ---------- */
+main h2 {
+  font-family: var(--display); font-weight: 750; font-stretch: 90%;
+  font-size: 1.75rem; line-height: 1.15; margin: 56px 0 14px; text-wrap: balance;
+  padding-top: 18px; border-top: 2px solid var(--ink); scroll-margin-top: 16px;
+}
+main h2:first-child { margin-top: 0; }
+main h3 { font-family: var(--display); font-weight: 700; font-size: 1.15rem; margin: 30px 0 8px; text-wrap: balance; }
+main p, main li { max-width: 68ch; }
+main ul, main ol { padding-left: 1.3em; }
+main li { margin: 4px 0; }
+main li::marker { color: var(--muted); }
+strong { font-weight: 600; }
+
+code { font: .88em/1.5 var(--mono); background: var(--code-bg); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre { margin: 16px 0 20px; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+pre code { background: none; padding: 0; font-size: 13.5px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
+pre.diagram { border-left: 3px solid var(--accent); }
+pre.diagram code { line-height: 1.3; }
+.mobile-toc + h2 { margin-top: 0; }
+
+.table-wrap { overflow-x: auto; margin: 16px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px/1.3 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* self-check: flashcards */
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; margin: 8px 0; }
+details summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: baseline; }
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: "Show answer"; font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+details[open] summary::after { content: "Hide"; }
+details[open] { border-color: var(--accent); }
+details[open] summary { border-bottom: 1px solid var(--line); }
+details .answer { padding: 12px 16px 14px; }
+
+/* gotchas list gets a warning tint */
+[id="16-gotchas-i-hit-or-that-the-rubric-targets"] + ol li::marker { color: var(--warn); font-weight: 600; }
+#key-points + ul { background: var(--accent-soft); border-radius: 8px; padding: 16px 20px 16px 2.2em; }
+
+.mobile-toc { display: none; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc { display: none; }
+  .mobile-toc { display: block; margin-bottom: 8px; }
+  .mobile-toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  .mobile-toc .n { display: inline-block; width: 28px; font: 600 12px/1.6 var(--mono); color: var(--muted); }
+  .mobile-toc ol a { text-decoration: none; }
+  .mobile-toc summary::after { content: "Open"; }
+  .mobile-toc[open] summary::after { content: "Close"; }
+  .mobile-toc .inner { padding: 4px 16px 0; }
+  main h2 { font-size: 1.45rem; }
+}
+</style>
+
+<header class="masthead">
+  <div class="eyebrow">Movie Picture Pipeline · review notes</div>
+  <h1>CI/CD with GitHub Actions, Docker &amp; Kubernetes</h1>
+  <p class="lede">The concepts behind the project, each shown first as real code from the repo, then explained, then boiled down to the gotchas worth remembering.</p>
+  <div class="rail" aria-label="Pipeline stages in this project">
+    <span class="stage">lint</span><span class="arrow">∥</span><span class="stage">test</span><span class="arrow">→</span>
+    <span class="stage gate">needs: [lint, test]</span><span class="arrow">→</span>
+    <span class="stage">build :sha</span><span class="arrow">→</span><span class="stage">push ECR</span><span class="arrow">→</span>
+    <span class="stage">kubectl apply</span><span class="arrow">→</span><span class="stage">rollout status</span><span class="arrow">→</span><span class="stage">smoke test</span>
+  </div>
+  <div class="rail-note">∥ parallel jobs · → sequential gate · a failure at any stage skips everything to its right</div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <div class="toc-title">Sections</div>
+    <ol>
+{{TOC}}
+    </ol>
+  </nav>
+  <main>
+    <details class="mobile-toc">
+      <summary>Sections</summary>
+      <div class="inner"><ol>
+{{TOC}}
+      </ol></div>
+    </details>
+{{CONTENT}}
+  </main>
+</div>
+
+<script>
+  // Highlight the section currently in view in the sticky index.
+  (() => {
+    const links = new Map();
+    document.querySelectorAll('nav.toc a').forEach((a) => links.set(a.getAttribute('href').slice(1), a));
+    const headings = [...document.querySelectorAll('main h2[id]')];
+    const setActive = (id) => links.forEach((a, key) => a.classList.toggle('active', key === id));
+    const onScroll = () => {
+      let current = headings[0]?.id;
+      for (const h of headings) { if (h.getBoundingClientRect().top < 120) current = h.id; }
+      setActive(current);
+    };
+    document.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  })();
+</script>

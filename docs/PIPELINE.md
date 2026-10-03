@@ -111,3 +111,14 @@ cd setup/terraform && terraform destroy
 | `docker build` both images (linux/amd64) | pass |
 | `smoke-test.sh` against local containers | pass. Fails as expected when the bundle has the wrong API URL |
 | `actionlint`, `shellcheck` | clean |
+
+## Verification on GitHub and AWS (2026-10-03)
+
+| Check | Result |
+| --- | --- |
+| Frontend and Backend CI on PR #1 | all jobs green |
+| PR #2 with broken tests | Test ❌, Build skipped, run failed, sticky comments posted |
+| Frontend and Backend CD on merge to `main` | all jobs green. Images `frontend:e3f334d…` and `backend:e3f334d…` pushed to ECR and deployed |
+| Backend URL discovery | frontend build waited about 70 s for the backend ELB, then baked in `http://ad35f450…elb.amazonaws.com` |
+| Smoke tests | backend `/movies` returned 3 movies. Frontend bundle confirmed wired to the backend URL |
+| Teardown | Services deleted (ELBs removed), access key deleted, `terraform destroy` |

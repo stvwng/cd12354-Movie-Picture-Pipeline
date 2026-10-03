@@ -13,3 +13,6 @@ build/
 eks-describe.json
 smoke-source.json
 codebuild-trust.json
+
+# Packaged deliverable
+movie-picture-pipeline-submission.zip

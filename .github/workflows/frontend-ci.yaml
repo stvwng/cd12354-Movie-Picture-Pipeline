@@ -29,7 +29,7 @@ defaults:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -42,7 +42,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -58,7 +58,7 @@ jobs:
 
   build:
     name: Build Docker image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Gate: a lint or test failure skips the build, which fails the run.
     needs: [lint, test]
     steps:
@@ -85,7 +85,7 @@ jobs:
 
   report:
     name: Report results
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # always() so the team hears about failures too. This job never changes the
     # run's conclusion: the run still fails if lint, test or build failed.
     if: always()

@@ -77,7 +77,7 @@ team hears about it, but they cannot turn a failed run green.
    - Frontend: the page must render, and its JS bundle must contain the backend URL. That proves `REACT_APP_MOVIE_API_URL` was baked in correctly, not just that the static server answers.
    - If either check fails, the job runs `kubectl rollout undo` and still fails the run.
 5. **Backend URL discovery.** Frontend CD reads the backend Service's live ELB hostname from the cluster, so nobody has to copy and paste it. A `REACT_APP_MOVIE_API_URL` repo variable or a `workflow_dispatch` input overrides it.
-6. **Safety.** Least-privilege `permissions:`. CI `concurrency` cancels stale PR runs, while CD queues deploys instead of killing them mid-apply. Untrusted values go through `env:` rather than inline `${{ }}` in scripts. GitHub Environments (`backend-production`, `frontend-production`) record deployment history with links.
+6. **Safety.** Least-privilege `permissions:`. Runners are pinned to `ubuntu-24.04`, because `ubuntu-latest` silently moves to Ubuntu 26 on 2026-10-19. CI `concurrency` cancels stale PR runs, while CD queues deploys instead of killing them mid-apply. Untrusted values go through `env:` rather than inline `${{ }}` in scripts. GitHub Environments (`backend-production`, `frontend-production`) record deployment history with links.
 
 ## One-time setup
 

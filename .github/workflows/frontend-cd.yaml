@@ -36,7 +36,7 @@ defaults:
 jobs:
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -49,7 +49,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -64,7 +64,7 @@ jobs:
 
   build:
     name: Build and push image to ECR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Gate: nothing reaches ECR unless lint and tests passed.
     needs: [lint, test]
     outputs:
@@ -149,7 +149,7 @@ jobs:
 
   deploy:
     name: Deploy to EKS
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: build
     environment:
       name: frontend-production
@@ -212,7 +212,7 @@ jobs:
 
   notify:
     name: Notify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: always()
     needs: [lint, test, build, deploy]
     env:
